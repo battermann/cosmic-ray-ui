@@ -1,0 +1,24 @@
+version: '2'
+
+tasks:
+  start-local:
+    cmds:
+      - ELM_APP_GRAPHQL_URI="localhost:8081/v1/graphql" ELM_APP_CMD_URI="localhost:8080" npx elm-app start
+
+  start:
+    cmds:
+      - ELM_APP_GRAPHQL_URI="salamander-hasura.herokuapp.com/v1/graphql" ELM_APP_CMD_URI="cosmic-ray-api.herokuapp.com" npx elm-app start
+
+  build:
+    cmds:
+      - ELM_APP_GRAPHQL_URI="salamander-hasura.herokuapp.com/v1/graphql" ELM_APP_CMD_URI="cosmic-ray-api.herokuapp.com" npx elm-app build
+  
+  surge:
+    cmds:
+      - mv ./build/index.html ./build/200.html
+      - surge ./build cosmic-ray.surge.sh
+
+  publish:
+    cmds:
+      - task: build
+      - task: surge
