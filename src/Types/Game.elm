@@ -1,4 +1,4 @@
-module Types.Game exposing (Game, info, mostRecent)
+module Types.Game exposing (Game, info, isMine, mostRecent)
 
 import List.Extra
 import Types.Column exposing (Column(..))
@@ -65,3 +65,16 @@ info game =
 
         ( Draw, _ ) ->
             "Draw"
+
+
+isMine : Game -> Bool
+isMine game =
+    case game.color of
+        Red ->
+            True
+
+        Yellow ->
+            True
+
+        None ->
+            False

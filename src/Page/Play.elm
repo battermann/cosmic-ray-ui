@@ -6,9 +6,11 @@ import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
 import Bootstrap.Form as Form
 import Bootstrap.Form.Select as Select
+import Bootstrap.ListGroup as ListGroup
 import Bootstrap.Spinner as Spinner exposing (spinner)
-import Bootstrap.Table as Table
 import Bootstrap.Utilities.Flex as Flex
+import Bootstrap.Utilities.Spacing as Spacing
+import Browser.Navigation as Nav
 import Graphql.Document
 import Graphql.Http
 import Graphql.Operation exposing (RootQuery, RootSubscription)
@@ -34,6 +36,7 @@ import Types.Color exposing (Color(..))
 import Types.GameId exposing (GameId(..))
 import Types.QueryEndpoint exposing (QueryEndpoint(..))
 import UUID
+import Url
 import Url.Builder
 
 
@@ -50,9 +53,11 @@ type alias Challenge =
 
 type alias Model =
     { clientId : ClientId
+    , key : Nav.Key
     , selectedColor : Color
     , challenges : RemoteData () (List Challenge)
     , play : RemoteData () ()
+    , accept : RemoteData () ()
     }
 
 
@@ -145,7 +150,7 @@ accept (CmdEndpoint url) (GameId gameId) clientId =
     Http.post
         { url = Url.Builder.crossOrigin url [ "games", UUID.toString gameId, "join" ] []
         , body = Http.jsonBody (acceptEncoder clientId)
-        , expect = Http.expectWhatever AcceptResult
+        , expect = Http.expectWhatever (AcceptResult (GameId gameId))
         }
 
 
@@ -155,7 +160,7 @@ accept (CmdEndpoint url) (GameId gameId) clientId =
 
 type Msg
     = NewGameResult (Result Http.Error ())
-    | AcceptResult (Result Http.Error ())
+    | AcceptResult GameId (Result Http.Error ())
     | Accept GameId
     | ColorSelected String
     | PlaySubmit
@@ -163,9 +168,9 @@ type Msg
     | SubscriptionResponse Decode.Value
 
 
-init : QueryEndpoint -> ClientId -> ( Model, Cmd Msg )
-init queryEndpoint clientId =
-    ( Model clientId Yellow RemoteData.Loading RemoteData.NotAsked
+init : Nav.Key -> QueryEndpoint -> ClientId -> ( Model, Cmd Msg )
+init key queryEndpoint clientId =
+    ( Model clientId key Yellow RemoteData.Loading RemoteData.NotAsked (RemoteData.Success ())
     , Cmd.batch [ makeRequest queryEndpoint clientId, createChallengesSubscription (sub clientId |> Graphql.Document.serializeSubscription) ]
     )
 
@@ -180,13 +185,18 @@ update cmdEndpoint msg model =
             ( { model | play = RemoteData.NotAsked }, Cmd.none )
 
         Accept gameId ->
-            ( model, accept cmdEndpoint gameId model.clientId )
+            ( { model | accept = RemoteData.Loading }, accept cmdEndpoint gameId model.clientId )
 
-        AcceptResult (Err _) ->
-            ( model, Cmd.none )
+        AcceptResult _ (Err _) ->
+            ( { model | accept = RemoteData.Failure () }, Cmd.none )
 
-        AcceptResult (Ok _) ->
-            ( model, Cmd.none )
+        AcceptResult gameId (Ok _) ->
+            ( { model
+                | accept = RemoteData.Success ()
+                , challenges = model.challenges |> RemoteData.map (List.filter (.gameId >> (==) gameId >> not))
+              }
+            , Nav.pushUrl model.key (Url.Builder.absolute [ "games", Types.GameId.toString gameId ] [])
+            )
 
         PlaySubmit ->
             ( { model | play = RemoteData.Loading }, newGame cmdEndpoint model.selectedColor model.clientId )
@@ -201,7 +211,7 @@ update cmdEndpoint msg model =
             ( model, Cmd.none )
 
         QueryResponse response ->
-            ( { model | challenges = response |> RemoteData.mapError (always ()) }, Cmd.none )
+            ( { model | challenges = response |> RemoteData.mapError (always ()) |> RemoteData.map (List.sortBy (.serialId >> (*) -1)) }, Cmd.none )
 
         SubscriptionResponse value ->
             ( { model
@@ -210,6 +220,7 @@ update cmdEndpoint msg model =
                         value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
+                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )
@@ -274,15 +285,6 @@ viewPlayForm model =
             Html.text ""
 
 
-viewChallenge : Challenge -> Table.Row Msg
-viewChallenge challenge =
-    Table.tr []
-        [ Table.td [] [ Button.button [ Button.success, Button.small, Button.onClick (Accept challenge.gameId) ] [ Html.text "Accept" ] ]
-        , Table.td [] [ Html.text (String.fromInt challenge.serialId) ]
-        , Table.td [] [ Html.div [ Flex.block, Flex.justifyAround, Flex.row ] [ coloredCircle challenge.color ] ]
-        ]
-
-
 coloredCircle : Color -> Html.Html Msg
 coloredCircle color =
     case color of
@@ -320,23 +322,30 @@ yellow =
     viewCircle "yellow"
 
 
+viewChallenge : Challenge -> ListGroup.Item Msg
+viewChallenge challenge =
+    ListGroup.li
+        [ ListGroup.attrs [ Spacing.mt2 ], ListGroup.light ]
+        [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
+            [ Html.div []
+                [ Button.button [ Button.success, Button.small, Button.onClick (Accept challenge.gameId), Button.attrs [ Spacing.mr2 ] ] [ Html.text "Accept" ]
+                , Html.text ("Challenge #" ++ String.fromInt challenge.serialId)
+                ]
+            , coloredCircle challenge.color
+            ]
+        ]
+
+
 viewChallenges : Model -> Html.Html Msg
 viewChallenges model =
-    case model.challenges of
+    case model.accept |> RemoteData.andThen (always model.challenges) of
         RemoteData.Success challenges ->
             if List.isEmpty challenges then
                 Html.text "There are currently no challenges" |> muted
 
             else
-                Table.simpleTable
-                    ( Table.simpleThead
-                        [ Table.th [] [ Html.text "" ]
-                        , Table.th [] [ Html.text "#" ]
-                        , Table.th [] [ Html.div [ Flex.block, Flex.justifyAround, Flex.row ] [ Html.text "Opponent" ] ]
-                        ]
-                    , Table.tbody []
-                        (challenges |> List.map viewChallenge)
-                    )
+                ListGroup.ul
+                    (challenges |> List.map viewChallenge)
 
         RemoteData.Loading ->
             Spinner.spinner [] []
@@ -351,7 +360,7 @@ viewChallenges model =
 view : Model -> Html.Html Msg
 view model =
     Card.deck
-        [ viewBlock "Play" (viewPlayForm model)
+        [ viewBlock "Create Challenge" (viewPlayForm model)
         , viewBlock "Challenges" (viewChallenges model)
         ]
 

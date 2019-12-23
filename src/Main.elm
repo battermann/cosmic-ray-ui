@@ -117,7 +117,7 @@ urlUpdate url model =
                 ( page, cmd ) =
                     case model.clientId of
                         Just clientId ->
-                            Play.init model.queryEndpoint clientId
+                            Play.init model.key model.queryEndpoint clientId
                                 |> Tuple.mapFirst PlayPage
                                 |> Tuple.mapSecond (Cmd.map PlayPageMsg)
 
@@ -128,7 +128,10 @@ urlUpdate url model =
 
 
 type alias Flags =
-    { clientId : String, queryEndpoint : String, commandEndpoint : String }
+    { clientId : String
+    , queryEndpoint : String
+    , commandEndpoint : String
+    }
 
 
 

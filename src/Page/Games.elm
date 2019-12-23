@@ -119,10 +119,23 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         QueryResponse response ->
-            ( { model | games = response |> RemoteData.mapError (always ()) }, Cmd.none )
+            ( { model
+                | games =
+                    response
+                        |> RemoteData.mapError (always ())
+                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
+              }
+            , Cmd.none
+            )
 
         SubscriptionResponse value ->
-            ( { model | games = Decode.decodeValue (sub model.clientId |> Graphql.Document.decoder) value |> RemoteData.fromResult |> RemoteData.mapError (always ()) }
+            ( { model
+                | games =
+                    Decode.decodeValue (sub model.clientId |> Graphql.Document.decoder) value
+                        |> RemoteData.fromResult
+                        |> RemoteData.mapError (always ())
+                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
+              }
             , Cmd.none
             )
 

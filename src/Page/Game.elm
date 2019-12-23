@@ -2,10 +2,10 @@ port module Page.Game exposing (Model, Msg, init, subscriptions, update, view)
 
 import Array exposing (Array)
 import Array.Extra
-import Bootstrap.Alert as Alert
 import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
 import Bootstrap.Grid as Grid
+import Bootstrap.Modal as Modal
 import Bootstrap.Spinner as Spinner exposing (spinner)
 import Bootstrap.Utilities.Flex as Flex
 import Bootstrap.Utilities.Size as Size
@@ -67,6 +67,7 @@ type alias Model =
     , gameId : GameId
     , clientId : ClientId
     , evalState : EvaluationState
+    , modalVisibility : Modal.Visibility
     }
 
 
@@ -179,6 +180,7 @@ type Msg
     | ColumnHover (Maybe Column)
     | SubscriptionResponse Decode.Value
     | PlayResult (Result Http.Error ())
+    | CloseModal
 
 
 init : QueryEndpoint -> GameId -> ClientId -> ( Model, Cmd Msg )
@@ -188,22 +190,43 @@ init queryEndpoint gameId clientId =
       , gameId = gameId
       , clientId = clientId
       , evalState = Valid
+      , modalVisibility = Modal.shown
       }
     , Cmd.batch [ makeRequest queryEndpoint gameId clientId, createGameSubscription (sub gameId clientId |> Graphql.Document.serializeSubscription) ]
     )
+
+
+modalVisibility : Game -> Game -> Modal.Visibility
+modalVisibility stateA stateB =
+    case ( stateA.state, stateB.state ) of
+        ( InProgress, Draw ) ->
+            Modal.shown
+
+        ( InProgress, RedWon ) ->
+            Modal.shown
+
+        ( InProgress, YellowWon ) ->
+            Modal.shown
+
+        _ ->
+            Modal.hidden
 
 
 update : CmdEndpoint -> Msg -> Model -> ( Model, Cmd Msg )
 update cmdEndpoint msg model =
     case msg of
         QueryResponse response ->
-            ( { model
-                | game =
+            let
+                updatedGame =
                     response
                         |> RemoteData.mapError (always ())
                         |> RemoteData.andThen
                             (List.head >> Maybe.map RemoteData.Success >> Maybe.withDefault (RemoteData.Failure ()))
+            in
+            ( { model
+                | game = updatedGame
                 , selectedColumn = Nothing
+                , modalVisibility = RemoteData.map2 modalVisibility model.game updatedGame |> RemoteData.withDefault Modal.hidden
               }
             , Cmd.none
             )
@@ -230,15 +253,19 @@ update cmdEndpoint msg model =
             ( { model | selectedColumn = column }, Cmd.none )
 
         SubscriptionResponse value ->
-            ( { model
-                | game =
+            let
+                updatedGame =
                     Decode.decodeValue (sub model.gameId model.clientId |> Graphql.Document.decoder) value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError
                             (always ())
                         |> RemoteData.andThen
                             (List.head >> Maybe.map RemoteData.Success >> Maybe.withDefault (RemoteData.Failure ()))
+            in
+            ( { model
+                | game = updatedGame
                 , evalState = Valid
+                , modalVisibility = RemoteData.map2 modalVisibility model.game updatedGame |> RemoteData.withDefault Modal.hidden
               }
             , Cmd.none
             )
@@ -249,9 +276,25 @@ update cmdEndpoint msg model =
         PlayResult (Ok _) ->
             ( model, Cmd.none )
 
+        CloseModal ->
+            ( { model | modalVisibility = Modal.hidden }, Cmd.none )
+
 
 
 ---- VIEW ----
+
+
+viewMarker : Svg.Svg msg
+viewMarker =
+    Svg.circle
+        [ Svg.Attributes.cx "21"
+        , Svg.Attributes.cy "21"
+        , Svg.Attributes.r "8"
+        , Svg.Attributes.fillOpacity "0"
+        , Svg.Attributes.stroke "black"
+        , Svg.Attributes.strokeWidth "3"
+        ]
+        []
 
 
 viewCircle : List (Attribute Msg) -> String -> String -> Bool -> Html Msg
@@ -272,15 +315,7 @@ viewCircle corner backgroundColor color marked =
             ]
             []
         , if marked then
-            Svg.circle
-                [ Svg.Attributes.cx "21"
-                , Svg.Attributes.cy "21"
-                , Svg.Attributes.r "8"
-                , Svg.Attributes.fillOpacity "0"
-                , Svg.Attributes.stroke "black"
-                , Svg.Attributes.strokeWidth "3"
-                ]
-                []
+            viewMarker
 
           else
             Svg.text ""
@@ -443,11 +478,30 @@ yellow =
 
 viewInfo : Game -> Html.Html Msg
 viewInfo =
-    Game.info >> Html.text
+    Game.info >> Html.text >> List.singleton >> Html.h5 []
+
+
+viewModal : Model -> Html Msg
+viewModal model =
+    case model.game of
+        RemoteData.Success game ->
+            Modal.config CloseModal
+                |> Modal.small
+                |> Modal.h4 [] [ Html.text "Game finished" ]
+                |> Modal.body [] [ viewInfo game ]
+                |> Modal.view model.modalVisibility
+
+        _ ->
+            Html.text ""
 
 
 view : Model -> Html.Html Msg
 view model =
+    Html.div [] [ viewGame model, viewModal model ]
+
+
+viewGame : Model -> Html.Html Msg
+viewGame model =
     case model.game of
         RemoteData.NotAsked ->
             Html.text "No data"
@@ -456,10 +510,19 @@ view model =
             Html.text "Loading ..."
 
         RemoteData.Failure _ ->
-            Alert.simpleDanger [] [ Html.text "Failed to load data" ]
+            Html.text "Loading ..."
 
         RemoteData.Success game ->
-            viewBlock (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ] [ Html.text ("Game #" ++ String.fromInt game.serialId), coloredCircle game.color ])
+            viewBlock
+                (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
+                    [ if Game.isMine game then
+                        Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text (" You Are Playing Game #" ++ String.fromInt game.serialId) ]
+
+                      else
+                        Html.h4 [] [ Html.i [ Html.Attributes.class "far fa-eye" ] [], Html.text (" Watching Game #" ++ String.fromInt game.serialId) ]
+                    , coloredCircle game.color
+                    ]
+                )
                 (Grid.container []
                     [ Grid.row []
                         [ Grid.col []
@@ -469,7 +532,7 @@ view model =
                         , Grid.col []
                             [ case model.evalState of
                                 Valid ->
-                                    Alert.simplePrimary [] [ viewInfo game ]
+                                    Html.div [] [ viewInfo game ]
 
                                 Loading ->
                                     Spinner.spinner [] []

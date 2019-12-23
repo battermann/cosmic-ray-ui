@@ -5,7 +5,6 @@ import Bootstrap.Card as Card
 import Bootstrap.Card.Block as Block
 import Bootstrap.ListGroup as ListGroup
 import Bootstrap.Spinner as Spinner exposing (spinner)
-import Bootstrap.Table as Table
 import Bootstrap.Utilities.Flex as Flex
 import Bootstrap.Utilities.Spacing as Spacing
 import Graphql.Document
@@ -153,6 +152,7 @@ update msg model =
                     Decode.decodeValue (challegesSub model.clientId |> Graphql.Document.decoder) value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
+                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )
@@ -163,6 +163,7 @@ update msg model =
                     Decode.decodeValue (gamesSub model.clientId |> Graphql.Document.decoder) value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
+                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )
@@ -180,15 +181,6 @@ coloredCircle color =
 
         Color.Yellow ->
             yellow
-
-
-viewChallenge : Challenge -> Table.Row Msg
-viewChallenge challenge =
-    Table.tr []
-        [ Table.td [] [ Html.text "Waiting for opponent..." ]
-        , Table.td [] [ Html.text (String.fromInt challenge.serialId) ]
-        , Table.td [] [ Html.div [ Flex.block, Flex.justifyAround, Flex.row ] [ coloredCircle challenge.color ] ]
-        ]
 
 
 viewCircle : String -> Html.Html Msg
@@ -242,17 +234,8 @@ viewChallenges remoteData =
                 Html.text "You currently have no challenges" |> muted
 
             else
-                Html.div []
-                    [ Table.simpleTable
-                        ( Table.simpleThead
-                            [ Table.th [] [ Html.text "" ]
-                            , Table.th [] [ Html.text "#" ]
-                            , Table.th [] [ Html.div [ Flex.block, Flex.justifyAround, Flex.row ] [ Html.text "Color" ] ]
-                            ]
-                        , Table.tbody []
-                            (challenges |> List.map viewChallenge)
-                        )
-                    ]
+                ListGroup.ul
+                    (challenges |> List.map viewChallenge)
 
         RemoteData.Loading ->
             Spinner.spinner [] []
@@ -262,6 +245,17 @@ viewChallenges remoteData =
 
         RemoteData.Failure _ ->
             Alert.simpleDanger [] [ Html.text "Failed to load data" ]
+
+
+viewChallenge : Challenge -> ListGroup.Item Msg
+viewChallenge challenge =
+    ListGroup.li
+        [ ListGroup.attrs [ Spacing.mt2 ], ListGroup.light ]
+        [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
+            [ Html.text <| "Game #" ++ String.fromInt challenge.serialId ++ " - Waiting for opponent..."
+            , coloredCircle challenge.color
+            ]
+        ]
 
 
 viewGame : Game -> ListGroup.CustomItem Msg
@@ -277,7 +271,7 @@ viewGame game =
                     |> String.join " - "
                     |> Html.text
                 ]
-            , Html.i [ Html.Attributes.class "far fa-eye" ] []
+            , Html.i [ Html.Attributes.class "fas fa-gamepad" ] []
             ]
         ]
 
