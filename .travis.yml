@@ -6,7 +6,7 @@ install:
 
 script:
   - npm install
-  - elm-app build
+  - ELM_APP_GRAPHQL_URI="salamander-hasura.herokuapp.com/v1/graphql" ELM_APP_CMD_URI="cosmic-ray-api.herokuapp.com" npx elm-app build
   - mv ./build/index.html ./build/200.html
 
 deploy:
