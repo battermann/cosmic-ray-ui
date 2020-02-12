@@ -337,6 +337,13 @@ view model =
                     |> Html.map MyGamesMsg
                 ]
             , Html.div [ Spacing.mt3 ] [ viewMainContent model ]
+            , Html.div [ Flex.block, Flex.justifyAround, Flex.row, Spacing.mt2 ]
+                [ Button.linkButton
+                    [ Button.roleLink
+                    , Button.attrs [ Html.Attributes.href "https://github.com/battermann/connect-4" ]
+                    ]
+                    [ Html.div [] [ Html.i [ Html.Attributes.class "fab fa-github" ] [], Html.text " Source Code" ] ]
+                ]
             ]
         ]
     }
