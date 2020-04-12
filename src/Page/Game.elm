@@ -508,6 +508,10 @@ viewBoard board selectedColumn game =
                                     [ Html.Attributes.style "width" "10vmin"
                                     , Html.Attributes.style "height" "10vmin"
                                     , Html.Attributes.style "user-select" "none"
+                                    , Html.Attributes.style "max-width" "120px"
+                                    , Html.Attributes.style "max-height" "120px"
+                                    , Html.Attributes.style "min-width" "40px"
+                                    , Html.Attributes.style "min-height" "40px"
                                     , Flex.block
                                     , Flex.col
                                     , Flex.justifyAround
