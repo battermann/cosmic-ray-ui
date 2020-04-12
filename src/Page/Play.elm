@@ -110,6 +110,20 @@ type alias NewGameRequest =
     }
 
 
+gameCreatedDecoder : Decode.Decoder GameId
+gameCreatedDecoder =
+    Decode.field "gameId" Decode.string
+        |> Decode.andThen
+            (\v ->
+                case UUID.fromString v of
+                    Ok uuid ->
+                        Decode.succeed (GameId uuid)
+
+                    Err _ ->
+                        Decode.fail <| "Couldn't decode game created response. Invalid game id. Expected UUID but got: " ++ v
+            )
+
+
 newGameEncoder : NewGameRequest -> Encode.Value
 newGameEncoder { clientId, color } =
     let
@@ -135,7 +149,7 @@ newGame (CmdEndpoint url) color clientId =
     Http.post
         { url = Url.Builder.crossOrigin url [ "games" ] []
         , body = Http.jsonBody (newGameEncoder (NewGameRequest clientId color))
-        , expect = Http.expectWhatever NewGameResult
+        , expect = Http.expectJson NewGameResult gameCreatedDecoder
         }
 
 
@@ -158,7 +172,7 @@ accept (CmdEndpoint url) (GameId gameId) clientId =
 
 
 type Msg
-    = NewGameResult (Result Http.Error ())
+    = NewGameResult (Result Http.Error GameId)
     | AcceptResult GameId (Result Http.Error ())
     | Accept GameId
     | ColorSelected String
@@ -180,8 +194,8 @@ update cmdEndpoint msg model =
         NewGameResult (Err _) ->
             ( { model | play = RemoteData.Failure () }, Cmd.none )
 
-        NewGameResult (Ok _) ->
-            ( { model | play = RemoteData.NotAsked }, Cmd.none )
+        NewGameResult (Ok gameId) ->
+            ( { model | play = RemoteData.NotAsked }, Nav.load <| Url.Builder.absolute [ "games", Types.GameId.toString gameId ] [] )
 
         Accept gameId ->
             ( { model | accept = RemoteData.Loading }, accept cmdEndpoint gameId model.clientId )
