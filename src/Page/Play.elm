@@ -36,7 +36,6 @@ import Types.Color exposing (Color(..))
 import Types.GameId exposing (GameId(..))
 import Types.QueryEndpoint exposing (QueryEndpoint(..))
 import UUID
-import Url
 import Url.Builder
 
 
@@ -361,7 +360,7 @@ view : Model -> Html.Html Msg
 view model =
     Card.deck
         [ viewBlock "Create Challenge" (viewPlayForm model)
-        , viewBlock "Challenges" (viewChallenges model)
+        , viewBlock "Challenges From Other Players" (viewChallenges model)
         ]
 
 

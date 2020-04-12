@@ -234,7 +234,7 @@ viewChallenges remoteData =
                 Html.text "You currently have no challenges" |> muted
 
             else
-                ListGroup.ul
+                ListGroup.custom
                     (challenges |> List.map viewChallenge)
 
         RemoteData.Loading ->
@@ -247,10 +247,10 @@ viewChallenges remoteData =
             Alert.simpleDanger [] [ Html.text "Failed to load data" ]
 
 
-viewChallenge : Challenge -> ListGroup.Item Msg
+viewChallenge : Challenge -> ListGroup.CustomItem Msg
 viewChallenge challenge =
-    ListGroup.li
-        [ ListGroup.attrs [ Spacing.mt2 ], ListGroup.light ]
+    ListGroup.anchor
+        [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString challenge.gameId ] []), Spacing.mt2 ], ListGroup.light ]
         [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
             [ Html.text <| "Game #" ++ String.fromInt challenge.serialId ++ " - Waiting for opponent..."
             , coloredCircle challenge.color
@@ -300,8 +300,8 @@ viewGames remoteData =
 view : Model -> Html.Html Msg
 view model =
     Card.deck
-        [ viewBlock "Your Games" (viewGames model.games)
-        , viewBlock "Your Challenges" (viewChallenges model.challenges)
+        [ viewBlock "Your Challenges" (viewChallenges model.challenges)
+        , viewBlock "Your Running Games" (viewGames model.games)
         ]
 
 

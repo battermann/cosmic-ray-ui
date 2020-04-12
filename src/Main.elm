@@ -305,23 +305,42 @@ viewPageNotFound =
         ]
 
 
-viewMainContent : Model -> Html.Html Msg
+viewMyGames : Model -> Html.Html Msg
+viewMyGames model =
+    model.myGames
+        |> Maybe.map MyGames.view
+        |> Maybe.withDefault (Html.text "")
+        |> Html.map MyGamesMsg
+
+
+viewGitHubLink : Html.Html Msg
+viewGitHubLink =
+    Html.div [ Flex.block, Flex.justifyAround, Flex.row, Spacing.mt2 ]
+        [ Button.linkButton
+            [ Button.roleLink
+            , Button.attrs [ Html.Attributes.href "https://github.com/battermann/connect-4" ]
+            ]
+            [ Html.div [] [ Html.i [ Html.Attributes.class "fab fa-github" ] [], Html.text " Source Code" ] ]
+        ]
+
+
+viewMainContent : Model -> List (Html.Html Msg)
 viewMainContent model =
     case model.page of
         HomePage ->
-            Card.deck viewCardList
+            [ Card.deck viewCardList ]
 
         GamesPage gamesModel ->
-            Games.view gamesModel |> Html.map GamesPageMsg
+            [ viewMyGames model, Games.view gamesModel |> Html.map GamesPageMsg ]
 
         GamePage gameModel ->
-            Game.view gameModel |> Html.map GamePageMsg
+            [ Game.view gameModel |> Html.map GamePageMsg ]
 
         PlayPage playModel ->
-            Play.view playModel |> Html.map PlayPageMsg
+            [ Play.view playModel |> Html.map PlayPageMsg, Html.div [ Spacing.mt3 ] [ viewMyGames model ] ]
 
         NotFound ->
-            viewPageNotFound
+            [ viewPageNotFound ]
 
 
 view : Model -> Browser.Document Msg
@@ -329,22 +348,7 @@ view model =
     { title = "Connect 4"
     , body =
         [ viewMenu model
-        , Grid.container [] <|
-            [ Html.div [ Spacing.mt3 ]
-                [ model.myGames
-                    |> Maybe.map MyGames.view
-                    |> Maybe.withDefault (Html.text "")
-                    |> Html.map MyGamesMsg
-                ]
-            , Html.div [ Spacing.mt3 ] [ viewMainContent model ]
-            , Html.div [ Flex.block, Flex.justifyAround, Flex.row, Spacing.mt2 ]
-                [ Button.linkButton
-                    [ Button.roleLink
-                    , Button.attrs [ Html.Attributes.href "https://github.com/battermann/connect-4" ]
-                    ]
-                    [ Html.div [] [ Html.i [ Html.Attributes.class "fab fa-github" ] [], Html.text " Source Code" ] ]
-                ]
-            ]
+        , Grid.container [] [ Html.div [ Spacing.mt3 ] (viewMainContent model ++ [ viewGitHubLink ]) ]
         ]
     }
 

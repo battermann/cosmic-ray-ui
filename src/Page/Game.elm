@@ -23,7 +23,9 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Mappings as M
 import Maybe.Extra
+import ReadModel.Enum.Color_enum as ColorEnum exposing (Color_enum)
 import ReadModel.Object
+import ReadModel.Object.Challenges
 import ReadModel.Object.Games
 import ReadModel.Query as Query
 import ReadModel.Scalar exposing (Uuid(..))
@@ -33,6 +35,7 @@ import Svg
 import Svg.Attributes
 import Types.ClientId exposing (ClientId(..))
 import Types.CmdEndpoint exposing (CmdEndpoint(..))
+import Types.Color as Color exposing (Color)
 import Types.Column as Player exposing (Column(..))
 import Types.Game as Game exposing (Game)
 import Types.GameId exposing (GameId(..))
@@ -49,6 +52,13 @@ import Url.Builder
 
 type alias Board =
     Array (Array Player)
+
+
+type alias Challenge =
+    { gameId : GameId
+    , serialId : Int
+    , color : Color
+    }
 
 
 empty : Board
@@ -68,6 +78,7 @@ type alias Model =
     , clientId : ClientId
     , evalState : EvaluationState
     , modalVisibility : Modal.Visibility
+    , myChallenges : List Challenge
     }
 
 
@@ -106,6 +117,42 @@ mkBoard =
 
 
 ---- GRAPHQL ----
+---- challenges ----
+
+
+mapColor : Color_enum -> Color
+mapColor enum =
+    case enum of
+        ColorEnum.Red ->
+            Color.Red
+
+        ColorEnum.Yellow ->
+            Color.Yellow
+
+
+challengesSelection : SelectionSet Challenge ReadModel.Object.Challenges
+challengesSelection =
+    SelectionSet.map3
+        Challenge
+        (SelectionSet.map GameId ReadModel.Object.Challenges.id)
+        ReadModel.Object.Challenges.serial_id
+        (SelectionSet.map mapColor ReadModel.Object.Challenges.color)
+
+
+challegesQuery : ClientId -> SelectionSet (List Challenge) RootQuery
+challegesQuery (ClientId clientId) =
+    Query.my_challenges identity { args = { my_id = Present clientId } } challengesSelection
+
+
+makeChallengesRequest : QueryEndpoint -> ClientId -> Cmd Msg
+makeChallengesRequest (QueryEndpoint url) clientId =
+    challegesQuery clientId
+        |> Graphql.Http.queryRequest url
+        |> Graphql.Http.send (RemoteData.fromResult >> ChallengeQueryResponse)
+
+
+
+---- game ----
 
 
 gameSelection : SelectionSet Game ReadModel.Object.Games
@@ -176,6 +223,7 @@ play (CmdEndpoint url) (GameId gameId) column clientId =
 
 type Msg
     = QueryResponse (RemoteData (Graphql.Http.Error (List Game)) (List Game))
+    | ChallengeQueryResponse (RemoteData (Graphql.Http.Error (List Challenge)) (List Challenge))
     | Played Column
     | ColumnHover (Maybe Column)
     | SubscriptionResponse Decode.Value
@@ -191,8 +239,13 @@ init queryEndpoint gameId clientId =
       , clientId = clientId
       , evalState = Valid
       , modalVisibility = Modal.shown
+      , myChallenges = []
       }
-    , Cmd.batch [ makeRequest queryEndpoint gameId clientId, createGameSubscription (sub gameId clientId |> Graphql.Document.serializeSubscription) ]
+    , Cmd.batch
+        [ makeRequest queryEndpoint gameId clientId
+        , createGameSubscription (sub gameId clientId |> Graphql.Document.serializeSubscription)
+        , makeChallengesRequest queryEndpoint clientId
+        ]
     )
 
 
@@ -230,6 +283,12 @@ update cmdEndpoint msg model =
               }
             , Cmd.none
             )
+
+        ChallengeQueryResponse (RemoteData.Success myChallenges) ->
+            ( { model | myChallenges = myChallenges }, Cmd.none )
+
+        ChallengeQueryResponse _ ->
+            ( model, Cmd.none )
 
         Played column ->
             case model.game of
@@ -391,6 +450,40 @@ columnPlayableAttributes column board game =
         []
 
 
+viewEmptyBoard : List (Html Msg)
+viewEmptyBoard =
+    empty
+        |> Array.map (\col -> col |> Array.toList |> List.reverse |> List.append (List.repeat (6 - Array.length col) None))
+        |> Array.toList
+        |> List.indexedMap
+            (\i col ->
+                Html.div
+                    [ Flex.block
+                    , Flex.col
+                    , Flex.justifyCenter
+                    , Flex.alignItemsCenter
+                    , Size.h100
+                    , Html.Events.onClick (Played (Column i))
+                    ]
+                    (col
+                        |> List.indexedMap
+                            (\j cell ->
+                                Html.div
+                                    [ Html.Attributes.style "width" "10vmin"
+                                    , Html.Attributes.style "height" "10vmin"
+                                    , Html.Attributes.style "user-select" "none"
+                                    , Flex.block
+                                    , Flex.col
+                                    , Flex.justifyAround
+                                    , Flex.alignItemsCenter
+                                    ]
+                                    [ viewCell (cornersAttributes i j) False False cell
+                                    ]
+                            )
+                    )
+            )
+
+
 viewBoard : Board -> Maybe Column -> Game -> List (Html Msg)
 viewBoard board selectedColumn game =
     board
@@ -507,10 +600,25 @@ viewGame model =
             Html.text "No data"
 
         RemoteData.Loading ->
-            Html.text "Loading ..."
+            Html.text "Loading …"
 
         RemoteData.Failure _ ->
-            Html.text "Loading ..."
+            case model.myChallenges |> List.filter (\x -> x.gameId == model.gameId) |> List.head of
+                Just challenge ->
+                    viewBlock
+                        (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
+                            [ Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text <| " You Are Playing Game #" ++ String.fromInt challenge.serialId ] ]
+                        )
+                        (Grid.container []
+                            [ Grid.row []
+                                [ Grid.col [] [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] viewEmptyBoard ]
+                                , Grid.col [] [ [ Html.text "Waiting for opponent …" ] |> Html.h5 [] ]
+                                ]
+                            ]
+                        )
+
+                _ ->
+                    Html.text "Failure …"
 
         RemoteData.Success game ->
             viewBlock
