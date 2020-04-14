@@ -610,9 +610,7 @@ viewGame model =
             case model.myChallenges |> List.filter (\x -> x.gameId == model.gameId) |> List.head of
                 Just challenge ->
                     viewBlock
-                        (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
-                            [ Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text <| " You Are Playing Game #" ++ String.fromInt challenge.serialId ] ]
-                        )
+                        (Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text <| " Waiting For Opponent (Challenge #" ++ String.fromInt challenge.serialId ++ ")" ])
                         (Grid.container []
                             [ Grid.row []
                                 [ Grid.col [] [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] viewEmptyBoard ]
@@ -628,10 +626,10 @@ viewGame model =
             viewBlock
                 (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
                     [ if Game.isMine game then
-                        Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text (" You Are Playing Game #" ++ String.fromInt game.serialId) ]
+                        Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text (" Playing (Game #" ++ String.fromInt game.serialId ++ ")") ]
 
                       else
-                        Html.h4 [] [ Html.i [ Html.Attributes.class "far fa-eye" ] [], Html.text (" Watching Game #" ++ String.fromInt game.serialId) ]
+                        Html.h4 [] [ Html.i [ Html.Attributes.class "far fa-eye" ] [], Html.text (" Watching (Game #" ++ String.fromInt game.serialId ++ ")") ]
                     , coloredCircle game.color
                     ]
                 )
