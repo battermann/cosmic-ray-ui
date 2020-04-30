@@ -79,6 +79,7 @@ type alias Model =
     , evalState : EvaluationState
     , modalVisibility : Modal.Visibility
     , myChallenges : List Challenge
+    , queryEndpoint : QueryEndpoint
     }
 
 
@@ -240,6 +241,7 @@ init queryEndpoint gameId clientId =
       , evalState = Valid
       , modalVisibility = Modal.shown
       , myChallenges = []
+      , queryEndpoint = queryEndpoint
       }
     , Cmd.batch
         [ makeRequest queryEndpoint gameId clientId
@@ -326,7 +328,7 @@ update cmdEndpoint msg model =
                 , evalState = Valid
                 , modalVisibility = RemoteData.map2 modalVisibility model.game updatedGame |> RemoteData.withDefault Modal.hidden
               }
-            , Cmd.none
+            , updatedGame |> RemoteData.unwrap (makeChallengesRequest model.queryEndpoint model.clientId) (always Cmd.none)
             )
 
         PlayResult (Err _) ->
@@ -604,7 +606,7 @@ viewGame model =
             Html.text "No data"
 
         RemoteData.Loading ->
-            Html.text "Loading …"
+            Spinner.spinner [] []
 
         RemoteData.Failure _ ->
             case model.myChallenges |> List.filter (\x -> x.gameId == model.gameId) |> List.head of
@@ -620,7 +622,7 @@ viewGame model =
                         )
 
                 _ ->
-                    Html.text "Failure …"
+                    Spinner.spinner [] []
 
         RemoteData.Success game ->
             viewBlock
