@@ -224,7 +224,7 @@ update cmdEndpoint msg model =
             ( model, Cmd.none )
 
         QueryResponse response ->
-            ( { model | challenges = response |> RemoteData.mapError (always ()) |> RemoteData.map (List.sortBy (.serialId >> (*) -1)) }, Cmd.none )
+            ( { model | challenges = response |> RemoteData.mapError (always ()) }, Cmd.none )
 
         SubscriptionResponse value ->
             ( { model
@@ -233,7 +233,6 @@ update cmdEndpoint msg model =
                         value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
-                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )

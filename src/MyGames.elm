@@ -152,7 +152,6 @@ update msg model =
                     Decode.decodeValue (challegesSub model.clientId |> Graphql.Document.decoder) value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
-                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )
@@ -163,7 +162,6 @@ update msg model =
                     Decode.decodeValue (gamesSub model.clientId |> Graphql.Document.decoder) value
                         |> RemoteData.fromResult
                         |> RemoteData.mapError (always ())
-                        |> RemoteData.map (List.sortBy (.serialId >> (*) -1))
               }
             , Cmd.none
             )
