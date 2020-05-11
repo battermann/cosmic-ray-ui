@@ -99,4 +99,8 @@ document.addEventListener('DOMContentLoaded', function () {
   app.ports.createMyGamesSubscription.subscribe(function (data) {
     subscribe(data, function (resp) { app.ports.myGamesReceived.send(resp) })
   })
+
+  app.ports.createChallengesSubscriptionGame.subscribe(function (data) {
+    subscribe(data, function (resp) { app.ports.challengesReceivedGame.send(resp) })
+  })
 })
