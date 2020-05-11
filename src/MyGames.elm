@@ -250,7 +250,7 @@ viewChallenge challenge =
     ListGroup.anchor
         [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString challenge.gameId ] []), Spacing.mt2 ], ListGroup.light ]
         [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
-            [ Html.text <| "Game #" ++ String.fromInt challenge.serialId ++ " - Waiting for opponent..."
+            [ Html.text <| "Challenge #" ++ String.fromInt challenge.serialId ++ " - Waiting for opponent..."
             , coloredCircle challenge.color
             ]
         ]

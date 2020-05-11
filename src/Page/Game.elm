@@ -21,6 +21,7 @@ import Html.Events
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
+import List.Extra
 import Mappings as M
 import Maybe.Extra
 import ReadModel.Enum.Color_enum as ColorEnum exposing (Color_enum)
@@ -39,7 +40,7 @@ import Types.Color as Color exposing (Color)
 import Types.Column as Player exposing (Column(..))
 import Types.Game as Game exposing (Game)
 import Types.GameId exposing (GameId(..))
-import Types.GameState exposing (GameState(..))
+import Types.GameState as GS exposing (GameState(..))
 import Types.Player as Player exposing (Player(..))
 import Types.QueryEndpoint exposing (QueryEndpoint(..))
 import UUID exposing (toString)
@@ -66,39 +67,55 @@ empty =
     Array.repeat 7 Array.empty
 
 
-type EvaluationState
-    = Loading
-    | Valid
+size : Board -> Int
+size =
+    Array.map Array.length >> Array.foldl (+) 0
 
 
-type alias Model =
-    { game : RemoteData () Game
+type alias GameModel =
+    { board : Board
     , selectedColumn : Maybe Column
-    , gameId : GameId
-    , clientId : ClientId
-    , evalState : EvaluationState
-    , modalVisibility : Modal.Visibility
-    , myChallenges : List Challenge
-    , queryEndpoint : QueryEndpoint
+    , lastMove : Maybe Column
+    , player : Player
     }
 
 
-isLegalMove : Column -> Game -> Board -> Bool
-isLegalMove (Column column) game board =
+type GameState
+    = Draw GameModel
+    | YellowWon GameModel
+    | RedWon GameModel
+    | InProgress GameModel
+    | WaitingForOpponent Player
+    | Observing Board (Maybe Column)
+
+
+type alias Model =
+    { gameId : GameId
+    , clientId : ClientId
+    , queryEndpoint : QueryEndpoint
+    , gameStateData : RemoteData () GameState
+    , modalVisibility : Modal.Visibility
+    , info : Maybe String
+    , title : String
+    }
+
+
+isLegalMove : Column -> Player -> Board -> Bool
+isLegalMove (Column column) player board =
     let
         isColumnFull =
             Array.get column board
                 |> Maybe.map (Array.length >> (==) 6)
                 |> Maybe.withDefault False
     in
-    case ( game.color, game.state ) of
-        ( Yellow, InProgress ) ->
-            modBy 2 (List.length game.moves) == 0 && not isColumnFull
+    case player of
+        Yellow ->
+            modBy 2 (size board) == 0 && not isColumnFull
 
-        ( Red, InProgress ) ->
-            modBy 2 (List.length game.moves) == 1 && not isColumnFull
+        Red ->
+            modBy 2 (size board) == 1 && not isColumnFull
 
-        _ ->
+        None ->
             False
 
 
@@ -114,6 +131,25 @@ mkBoard =
                     board |> Array.Extra.update col (Array.push Player.Red)
             )
             empty
+
+
+addMove : Column -> Board -> Board
+addMove (Column col) board =
+    if (size board |> modBy 2) == 0 then
+        board |> Array.Extra.update col (Array.push Player.Yellow)
+
+    else
+        board |> Array.Extra.update col (Array.push Player.Red)
+
+
+toPlayer : Color -> Player
+toPlayer color =
+    case color of
+        Color.Red ->
+            Red
+
+        Color.Yellow ->
+            Yellow
 
 
 
@@ -140,16 +176,9 @@ challengesSelection =
         (SelectionSet.map mapColor ReadModel.Object.Challenges.color)
 
 
-challegesQuery : ClientId -> SelectionSet (List Challenge) RootQuery
-challegesQuery (ClientId clientId) =
-    Query.my_challenges identity { args = { my_id = Present clientId } } challengesSelection
-
-
-makeChallengesRequest : QueryEndpoint -> ClientId -> Cmd Msg
-makeChallengesRequest (QueryEndpoint url) clientId =
-    challegesQuery clientId
-        |> Graphql.Http.queryRequest url
-        |> Graphql.Http.send (RemoteData.fromResult >> ChallengeQueryResponse)
+challengesSubscription : ClientId -> SelectionSet (List Challenge) RootSubscription
+challengesSubscription (ClientId clientId) =
+    Subscription.my_challenges identity { args = { my_id = Present clientId } } challengesSelection
 
 
 
@@ -172,8 +201,8 @@ query (GameId gameId) (ClientId clientId) =
     Query.game identity { args = { game_id = Present gameId, my_id = Present clientId } } gameSelection
 
 
-sub : GameId -> ClientId -> SelectionSet (List Game) RootSubscription
-sub (GameId gameId) (ClientId clientId) =
+gamesSubscription : GameId -> ClientId -> SelectionSet (List Game) RootSubscription
+gamesSubscription (GameId gameId) (ClientId clientId) =
     Subscription.game identity { args = { game_id = Present gameId, my_id = Present clientId } } gameSelection
 
 
@@ -181,7 +210,7 @@ makeRequest : QueryEndpoint -> GameId -> ClientId -> Cmd Msg
 makeRequest (QueryEndpoint url) gameId clientId =
     query gameId clientId
         |> Graphql.Http.queryRequest url
-        |> Graphql.Http.send (RemoteData.fromResult >> QueryResponse)
+        |> Graphql.Http.send GameQueryResponse
 
 
 
@@ -223,83 +252,134 @@ play (CmdEndpoint url) (GameId gameId) column clientId =
 
 
 type Msg
-    = QueryResponse (RemoteData (Graphql.Http.Error (List Game)) (List Game))
-    | ChallengeQueryResponse (RemoteData (Graphql.Http.Error (List Challenge)) (List Challenge))
+    = GameQueryResponse (Result (Graphql.Http.Error (List Game)) (List Game))
+    | ChallengesSubscriptionResponse (Result Decode.Error (List Challenge))
+    | GameSubscriptionResponse (Result Decode.Error (List Game))
     | Played Column
     | ColumnHover (Maybe Column)
-    | SubscriptionResponse Decode.Value
     | PlayResult (Result Http.Error ())
     | CloseModal
 
 
 init : QueryEndpoint -> GameId -> ClientId -> ( Model, Cmd Msg )
 init queryEndpoint gameId clientId =
-    ( { game = RemoteData.Loading
-      , selectedColumn = Nothing
+    ( { gameStateData = RemoteData.NotAsked
       , gameId = gameId
       , clientId = clientId
-      , evalState = Valid
-      , modalVisibility = Modal.shown
-      , myChallenges = []
       , queryEndpoint = queryEndpoint
+      , modalVisibility = Modal.hidden
+      , info = Just "Loading …"
+      , title = ""
       }
     , Cmd.batch
         [ makeRequest queryEndpoint gameId clientId
-        , createGameSubscription (sub gameId clientId |> Graphql.Document.serializeSubscription)
-        , makeChallengesRequest queryEndpoint clientId
+        , createGameSubscription (gamesSubscription gameId clientId |> Graphql.Document.serializeSubscription)
+        , createChallengesSubscriptionGame (challengesSubscription clientId |> Graphql.Document.serializeSubscription)
         ]
     )
 
 
-modalVisibility : Game -> Game -> Modal.Visibility
-modalVisibility stateA stateB =
-    case ( stateA.state, stateB.state ) of
-        ( InProgress, Draw ) ->
-            Modal.shown
+updateGame : Game -> Model -> ( Model, Cmd Msg )
+updateGame game model =
+    let
+        mkGame state modalVisibility =
+            { model
+                | gameStateData =
+                    if Game.isMine game then
+                        { board = mkBoard game.moves
+                        , selectedColumn = Nothing
+                        , player = game.color
+                        , lastMove = game.moves |> List.Extra.last
+                        }
+                            |> state
+                            |> RemoteData.succeed
 
-        ( InProgress, RedWon ) ->
-            Modal.shown
+                    else
+                        Observing (mkBoard game.moves) (game.moves |> List.Extra.last)
+                            |> RemoteData.succeed
+                , modalVisibility = modalVisibility
+                , info = Just (Game.info game)
+                , title =
+                    if Game.isMine game then
+                        "You Are Playing (Game #" ++ String.fromInt game.serialId ++ ")"
 
-        ( InProgress, YellowWon ) ->
-            Modal.shown
+                    else
+                        "Watching (Game #" ++ String.fromInt game.serialId ++ ")"
+            }
+    in
+    case ( model.gameStateData, game.state ) of
+        ( RemoteData.Success (InProgress _), GS.Draw ) ->
+            ( mkGame Draw Modal.shown, Cmd.none )
 
-        _ ->
-            Modal.hidden
+        ( _, GS.Draw ) ->
+            ( mkGame Draw Modal.hidden, Cmd.none )
+
+        ( RemoteData.Success (InProgress _), GS.RedWon ) ->
+            ( mkGame RedWon Modal.shown, Cmd.none )
+
+        ( _, GS.RedWon ) ->
+            ( mkGame RedWon Modal.hidden, Cmd.none )
+
+        ( RemoteData.Success (InProgress _), GS.YellowWon ) ->
+            ( mkGame YellowWon Modal.shown, Cmd.none )
+
+        ( _, GS.YellowWon ) ->
+            ( mkGame YellowWon Modal.hidden, Cmd.none )
+
+        ( _, GS.InProgress ) ->
+            ( mkGame InProgress Modal.hidden, Cmd.none )
 
 
 update : CmdEndpoint -> Msg -> Model -> ( Model, Cmd Msg )
 update cmdEndpoint msg model =
     case msg of
-        QueryResponse response ->
+        GameQueryResponse (Ok [ game ]) ->
+            updateGame game model
+
+        GameQueryResponse _ ->
+            ( model, Cmd.none )
+
+        ChallengesSubscriptionResponse (Ok myChallenges) ->
             let
-                updatedGame =
-                    response
-                        |> RemoteData.mapError (always ())
-                        |> RemoteData.andThen
-                            (List.head >> Maybe.map RemoteData.Success >> Maybe.withDefault (RemoteData.Failure ()))
+                maybeChallenge =
+                    myChallenges |> List.Extra.find (\challenge -> challenge.gameId == model.gameId)
             in
-            ( { model
-                | game = updatedGame
-                , selectedColumn = Nothing
-                , modalVisibility = RemoteData.map2 modalVisibility model.game updatedGame |> RemoteData.withDefault Modal.hidden
-              }
-            , Cmd.none
-            )
+            case maybeChallenge of
+                Just challenge ->
+                    ( { model
+                        | gameStateData = RemoteData.succeed (WaitingForOpponent (toPlayer challenge.color))
+                        , info = Just "Waiting for opponent …"
+                        , title = "Waiting For Opponent (Challenge #" ++ String.fromInt challenge.serialId ++ ")"
+                      }
+                    , Cmd.none
+                    )
 
-        ChallengeQueryResponse (RemoteData.Success myChallenges) ->
-            ( { model | myChallenges = myChallenges }, Cmd.none )
+                Nothing ->
+                    ( model, Cmd.none )
 
-        ChallengeQueryResponse _ ->
+        ChallengesSubscriptionResponse _ ->
+            ( model, Cmd.none )
+
+        GameSubscriptionResponse (Ok [ game ]) ->
+            updateGame game model
+
+        GameSubscriptionResponse _ ->
             ( model, Cmd.none )
 
         Played column ->
-            case model.game of
-                RemoteData.Success game ->
-                    if isLegalMove column game (mkBoard game.moves) then
+            case model.gameStateData of
+                RemoteData.Success (InProgress game) ->
+                    if isLegalMove column game.player game.board then
                         ( { model
-                            | selectedColumn = Nothing
-                            , game = RemoteData.Success <| { game | moves = game.moves ++ [ column ] }
-                            , evalState = Loading
+                            | gameStateData =
+                                InProgress
+                                    { board = addMove column game.board
+                                    , selectedColumn = Nothing
+                                    , player = game.player
+                                    , lastMove = Just column
+                                    }
+                                    |> RemoteData.succeed
+                            , info = Nothing
                           }
                         , play cmdEndpoint model.gameId column model.clientId
                         )
@@ -311,25 +391,12 @@ update cmdEndpoint msg model =
                     ( model, Cmd.none )
 
         ColumnHover column ->
-            ( { model | selectedColumn = column }, Cmd.none )
+            case model.gameStateData of
+                RemoteData.Success (InProgress game) ->
+                    ( { model | gameStateData = InProgress { game | selectedColumn = column } |> RemoteData.succeed }, Cmd.none )
 
-        SubscriptionResponse value ->
-            let
-                updatedGame =
-                    Decode.decodeValue (sub model.gameId model.clientId |> Graphql.Document.decoder) value
-                        |> RemoteData.fromResult
-                        |> RemoteData.mapError
-                            (always ())
-                        |> RemoteData.andThen
-                            (List.head >> Maybe.map RemoteData.Success >> Maybe.withDefault (RemoteData.Failure ()))
-            in
-            ( { model
-                | game = updatedGame
-                , evalState = Valid
-                , modalVisibility = RemoteData.map2 modalVisibility model.game updatedGame |> RemoteData.withDefault Modal.hidden
-              }
-            , updatedGame |> RemoteData.unwrap (makeChallengesRequest model.queryEndpoint model.clientId) (always Cmd.none)
-            )
+                _ ->
+                    ( model, Cmd.none )
 
         PlayResult (Err _) ->
             ( model, Cmd.none )
@@ -384,9 +451,9 @@ viewCircle corner backgroundColor color marked =
 
 
 viewBlock : Html.Html Msg -> Html.Html Msg -> Html.Html Msg
-viewBlock titleContent content =
+viewBlock title content =
     Card.config [ Card.attrs [ Spacing.mt3 ] ]
-        |> Card.header [] [ titleContent ]
+        |> Card.headerH4 [] [ title ]
         |> Card.block []
             [ Block.text []
                 [ content ]
@@ -440,9 +507,9 @@ cornersAttributes col row =
         |> Maybe.withDefault []
 
 
-columnPlayableAttributes : Column -> Game -> Board -> List (Html.Attribute Msg)
-columnPlayableAttributes column board game =
-    if isLegalMove column board game then
+columnPlayableAttributes : Column -> Player -> Board -> List (Html.Attribute Msg)
+columnPlayableAttributes column color board =
+    if isLegalMove column color board then
         [ Html.Events.onMouseEnter (ColumnHover (Just column))
         , Html.Events.onMouseLeave (ColumnHover Nothing)
         , Html.Attributes.style "cursor" "pointer"
@@ -486,8 +553,8 @@ viewEmptyBoard =
             )
 
 
-viewBoard : Board -> Maybe Column -> Game -> List (Html Msg)
-viewBoard board selectedColumn game =
+viewBoard : Board -> Maybe Column -> Player -> Maybe ( Int, Int ) -> List (Html Msg)
+viewBoard board selectedColumn color lastMove =
     board
         |> Array.map (\col -> col |> Array.toList |> List.reverse |> List.append (List.repeat (6 - Array.length col) None))
         |> Array.toList
@@ -501,7 +568,7 @@ viewBoard board selectedColumn game =
                      , Size.h100
                      , Html.Events.onClick (Played (Column i))
                      ]
-                        ++ columnPlayableAttributes (Column i) game board
+                        ++ columnPlayableAttributes (Column i) color board
                     )
                     (col
                         |> List.indexedMap
@@ -527,25 +594,12 @@ viewBoard board selectedColumn game =
                                                 False
                                                 (always True)
                                         )
-                                        (Game.mostRecent game == Just ( i, j ))
+                                        (lastMove == Just ( i, j ))
                                         cell
                                     ]
                             )
                     )
             )
-
-
-coloredCircle : Player -> Html.Html Msg
-coloredCircle color =
-    case color of
-        Red ->
-            red
-
-        Yellow ->
-            yellow
-
-        None ->
-            Html.text ""
 
 
 viewMyColor : String -> Html.Html Msg
@@ -575,23 +629,91 @@ yellow =
     viewMyColor "yellow"
 
 
-viewInfo : Game -> Html.Html Msg
+viewInfo : Maybe String -> Html.Html Msg
 viewInfo =
-    Game.info >> Html.text >> List.singleton >> Html.h5 []
+    Maybe.Extra.unwrap (Spinner.spinner [] []) Html.text
+
+
+coloredCircle : Player -> Html.Html Msg
+coloredCircle color =
+    case color of
+        Red ->
+            red
+
+        Yellow ->
+            yellow
+
+        None ->
+            Html.text ""
 
 
 viewModal : Model -> Html Msg
 viewModal model =
-    case model.game of
-        RemoteData.Success game ->
-            Modal.config CloseModal
-                |> Modal.small
-                |> Modal.h4 [] [ Html.text "Game finished" ]
-                |> Modal.body [] [ viewInfo game ]
-                |> Modal.view model.modalVisibility
+    Modal.config CloseModal
+        |> Modal.small
+        |> Modal.h4 [] [ Html.text "Game finished" ]
+        |> Modal.body [] [ Html.h5 [] [ viewInfo model.info ] ]
+        |> Modal.view model.modalVisibility
 
-        _ ->
-            Html.text ""
+
+coordinatesLastMove : Board -> Column -> Maybe ( Int, Int )
+coordinatesLastMove board (Column columnIndex) =
+    board |> Array.get columnIndex |> Maybe.map (\column -> ( columnIndex, 6 - Array.length column ))
+
+
+viewGame : Model -> Html.Html Msg
+viewGame model =
+    let
+        viewGameAndInfo icon boardView player =
+            Html.div []
+                [ viewBlock
+                    (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
+                        [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ] [ Html.div [ Spacing.mr3 ] [ Html.i [ Html.Attributes.class icon ] [] ], Html.text model.title ]
+                        , coloredCircle player
+                        ]
+                    )
+                    (Grid.container []
+                        [ Grid.row []
+                            [ Grid.col [] [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] boardView ]
+                            , Grid.col [] [ [ viewInfo model.info ] |> Html.h5 [] ]
+                            ]
+                        ]
+                    )
+                ]
+
+        renderBoard game =
+            viewBoard game.board game.selectedColumn game.player (game.lastMove |> Maybe.andThen (coordinatesLastMove game.board))
+    in
+    case model.gameStateData of
+        RemoteData.NotAsked ->
+            Spinner.spinner [] []
+
+        RemoteData.Loading ->
+            Spinner.spinner [] []
+
+        RemoteData.Failure _ ->
+            Html.text "failure"
+
+        RemoteData.Success (Observing board lastMove) ->
+            viewGameAndInfo
+                "far fa-eye"
+                (viewBoard board Nothing None (lastMove |> Maybe.andThen (coordinatesLastMove board)))
+                None
+
+        RemoteData.Success (WaitingForOpponent player) ->
+            viewGameAndInfo "fas fa-gamepad" viewEmptyBoard player
+
+        RemoteData.Success (Draw game) ->
+            viewGameAndInfo "fas fa-gamepad" (renderBoard game) game.player
+
+        RemoteData.Success (YellowWon game) ->
+            viewGameAndInfo "fas fa-gamepad" (renderBoard game) game.player
+
+        RemoteData.Success (RedWon game) ->
+            viewGameAndInfo "fas fa-gamepad" (renderBoard game) game.player
+
+        RemoteData.Success (InProgress game) ->
+            viewGameAndInfo "fas fa-gamepad" (renderBoard game) game.player
 
 
 view : Model -> Html.Html Msg
@@ -599,68 +721,23 @@ view model =
     Html.div [] [ viewGame model, viewModal model ]
 
 
-viewGame : Model -> Html.Html Msg
-viewGame model =
-    case model.game of
-        RemoteData.NotAsked ->
-            Html.text "No data"
-
-        RemoteData.Loading ->
-            Spinner.spinner [] []
-
-        RemoteData.Failure _ ->
-            case model.myChallenges |> List.filter (\x -> x.gameId == model.gameId) |> List.head of
-                Just challenge ->
-                    viewBlock
-                        (Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text <| " Waiting For Opponent (Challenge #" ++ String.fromInt challenge.serialId ++ ")" ])
-                        (Grid.container []
-                            [ Grid.row []
-                                [ Grid.col [] [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] viewEmptyBoard ]
-                                , Grid.col [] [ [ Html.text "Waiting for opponent …" ] |> Html.h5 [] ]
-                                ]
-                            ]
-                        )
-
-                _ ->
-                    Spinner.spinner [] []
-
-        RemoteData.Success game ->
-            viewBlock
-                (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
-                    [ if Game.isMine game then
-                        Html.h4 [] [ Html.i [ Html.Attributes.class "fas fa-gamepad" ] [], Html.text (" Playing (Game #" ++ String.fromInt game.serialId ++ ")") ]
-
-                      else
-                        Html.h4 [] [ Html.i [ Html.Attributes.class "far fa-eye" ] [], Html.text (" Watching (Game #" ++ String.fromInt game.serialId ++ ")") ]
-                    , coloredCircle game.color
-                    ]
-                )
-                (Grid.container []
-                    [ Grid.row []
-                        [ Grid.col []
-                            [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ]
-                                (viewBoard (mkBoard game.moves) model.selectedColumn game)
-                            ]
-                        , Grid.col []
-                            [ case model.evalState of
-                                Valid ->
-                                    Html.div [] [ viewInfo game ]
-
-                                Loading ->
-                                    Spinner.spinner [] []
-                            ]
-                        ]
-                    ]
-                )
-
-
 
 ---- SUBSCRIPTIONS ----
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
-    gameReceived SubscriptionResponse
+subscriptions model =
+    case model.gameStateData of
+        RemoteData.Success _ ->
+            Sub.batch
+                [ gameReceived (Decode.decodeValue (gamesSubscription model.gameId model.clientId |> Graphql.Document.decoder) >> GameSubscriptionResponse)
+                ]
+
+        _ ->
+            Sub.batch
+                [ gameReceived (Decode.decodeValue (gamesSubscription model.gameId model.clientId |> Graphql.Document.decoder) >> GameSubscriptionResponse)
+                , challengesReceivedGame (Decode.decodeValue (challengesSubscription model.clientId |> Graphql.Document.decoder) >> ChallengesSubscriptionResponse)
+                ]
 
 
 
@@ -670,4 +747,10 @@ subscriptions _ =
 port createGameSubscription : String -> Cmd msg
 
 
+port createChallengesSubscriptionGame : String -> Cmd msg
+
+
 port gameReceived : (Decode.Value -> msg) -> Sub msg
+
+
+port challengesReceivedGame : (Decode.Value -> msg) -> Sub msg
