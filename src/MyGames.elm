@@ -248,7 +248,7 @@ viewChallenges remoteData =
 viewChallenge : Challenge -> ListGroup.CustomItem Msg
 viewChallenge challenge =
     ListGroup.anchor
-        [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString challenge.gameId ] []), Spacing.mt2 ], ListGroup.light ]
+        [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString challenge.gameId ] []), Spacing.mt2 ], ListGroup.dark ]
         [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
             [ Html.text <| "Challenge #" ++ String.fromInt challenge.serialId ++ " - Waiting for opponent..."
             , coloredCircle challenge.color
@@ -259,7 +259,7 @@ viewChallenge challenge =
 viewGame : Game -> ListGroup.CustomItem Msg
 viewGame game =
     ListGroup.anchor
-        [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString game.id ] []), Spacing.mt2 ], ListGroup.light ]
+        [ ListGroup.attrs [ Html.Attributes.href (Url.Builder.absolute [ "games", Types.GameId.toString game.id ] []), Spacing.mt2 ], ListGroup.dark ]
         [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
             [ Html.div []
                 [ [ "Game #" ++ String.fromInt game.serialId

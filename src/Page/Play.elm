@@ -337,7 +337,7 @@ yellow =
 viewChallenge : Challenge -> ListGroup.Item Msg
 viewChallenge challenge =
     ListGroup.li
-        [ ListGroup.attrs [ Spacing.mt2 ], ListGroup.light ]
+        [ ListGroup.attrs [ Spacing.mt2 ], ListGroup.dark ]
         [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
             [ Html.div []
                 [ Button.button [ Button.success, Button.small, Button.onClick (Accept challenge.gameId), Button.attrs [ Spacing.mr2 ] ] [ Html.text "Accept" ]

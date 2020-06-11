@@ -348,7 +348,7 @@ update cmdEndpoint msg model =
                 Just challenge ->
                     ( { model
                         | gameStateData = RemoteData.succeed (WaitingForOpponent (toPlayer challenge.color))
-                        , info = Just "Waiting for opponent …"
+                        , info = Just ""
                         , title = "Waiting For Opponent (Challenge #" ++ String.fromInt challenge.serialId ++ ")"
                       }
                     , Cmd.none
@@ -668,17 +668,11 @@ viewGame model =
             Html.div []
                 [ viewBlock
                     (Html.div [ Flex.block, Flex.row, Flex.justifyBetween ]
-                        [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ] [ Html.div [ Spacing.mr3 ] [ Html.i [ Html.Attributes.class icon ] [] ], Html.text model.title ]
+                        [ Html.div [ Flex.block, Flex.row, Flex.justifyBetween ] [ Html.div [ Spacing.mr3 ] [ Html.i [ Html.Attributes.class icon ] [] ], Html.text model.title, Html.div [ Spacing.ml3 ] [ viewInfo model.info ] ]
                         , coloredCircle player
                         ]
                     )
-                    (Grid.container []
-                        [ Grid.row []
-                            [ Grid.col [] [ Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] boardView ]
-                            , Grid.col [] [ [ viewInfo model.info ] |> Html.h5 [] ]
-                            ]
-                        ]
-                    )
+                    (Html.div [ Spacing.mb4, Flex.block, Flex.row, Flex.justifyCenter, Flex.alignItemsCenter ] boardView)
                 ]
 
         renderBoard game =

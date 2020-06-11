@@ -286,7 +286,7 @@ viewCardList =
 viewMenu : Model -> Html.Html Msg
 viewMenu model =
     Navbar.config NavbarMsg
-        |> Navbar.light
+        |> Navbar.primary
         |> Navbar.withAnimation
         |> Navbar.container
         |> Navbar.brand [ Html.Attributes.href "/" ] [ Html.i [ Html.Attributes.class "fas fa-home" ] [] ]

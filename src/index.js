@@ -1,4 +1,5 @@
-import 'bootstrap/dist/css/bootstrap.min.css'
+//import 'bootstrap/dist/css/bootstrap.min.css'
+import 'bootswatch/dist/darkly/bootstrap.min.css'
 import './styles.css'
 import uuidv4 from 'uuid/v4'
 import '@fortawesome/fontawesome-free/js/all'

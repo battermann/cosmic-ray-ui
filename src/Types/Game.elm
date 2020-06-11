@@ -32,36 +32,36 @@ info game =
     case ( game.state, game.color ) of
         ( InProgress, Red ) ->
             if yellowToMove then
-                "Yellow to move"
+                "Yellow To Move"
 
             else
-                "It's your turn"
+                "It's Your Turn"
 
         ( InProgress, Yellow ) ->
             if yellowToMove then
-                "It's your turn"
+                "It's Your Turn"
 
             else
-                "Red to move"
+                "Red To Move"
 
         ( InProgress, None ) ->
             if yellowToMove then
-                "Yellow to move"
+                "Yellow To Move"
 
             else
-                "Red to move"
+                "Red To Move"
 
         ( YellowWon, Yellow ) ->
-            "You win"
+            "You Win"
 
         ( YellowWon, _ ) ->
-            "Yellow wins"
+            "Yellow Wins"
 
         ( RedWon, Red ) ->
-            "You win"
+            "You Win"
 
         ( RedWon, _ ) ->
-            "Red wins"
+            "Red Wins"
 
         ( Draw, _ ) ->
             "Draw"
